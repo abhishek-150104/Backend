@@ -53,7 +53,7 @@ app.use("/api/v1/superadmin", superAdminRouter);
 
 
 endedAuctionCron(); // Start the cron job for ended auctions
-verifyCommissionCron(); // Start the cron job for verifying commissions
+verifyCommissionCron(); 
 
 
 // Connect DB

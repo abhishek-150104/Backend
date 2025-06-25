@@ -5,71 +5,83 @@ import { Bid } from "../models/bidSchema.js";
 import { User } from "../models/userSchema.js";
 
 export const placeBid = catchAsyncErrors(async (req, res, next) => {
-  const{id} = req.params;
+  const { id } = req.params;
   const auctionItem = await Auction.findById(id);
+
   if (!auctionItem) {
     return next(new ErrorHandler("Auction item not found.", 404));
   }
-  console.log("id:", id);
-  console.log("body:", req.body);
-  const {amount}=req.body;
 
-  console.log("Amount:", amount);
+  const { amount } = req.body;
 
-  if(!amount){
+  if (!amount) {
     return next(new ErrorHandler("Please place your bid.", 400));
   }
-  if(amount <= auctionItem.currentBid) {
+
+  if (amount <= auctionItem.currentBid) {
     return next(new ErrorHandler("Bid amount must be higher than the current bid.", 400));
   }
-  if(amount < auctionItem.startingBid) {
+
+  if (amount < auctionItem.startingBid) {
     return next(new ErrorHandler("Bid amount must be higher than the starting bid.", 400));
   }
 
-  try{
-    
+  try {
+    const bidderDetail = await User.findById(req.user._id);
+
     const existingBid = await Bid.findOne({
-      "bidder.id":req.user._id,
-      auctionItem: auctionItem._id
+      "bidder.id": req.user._id,
+      auctionItem: auctionItem._id,
     });
-    
+
     const existingBidInAuction = auctionItem.bids.find(
-      (bid) => bid.userId.toString() == req.user._id.toString()
+      (bid) => bid.userId.toString() === req.user._id.toString()
     );
-    
+
     if (existingBid && existingBidInAuction) {
-      existingBidInAuction.amount = amount;
+      // Update bid in Bid collection
       existingBid.amount = amount;
-      await existingBidInAuction.save();
       await existingBid.save();
-      auctionItem.currentBid = amount;
-    }else{
-      const bidderDetail = await User.findById(req.user._id);
-      const bid = await Bid.create({
+
+      // Update embedded bid in Auction document
+      auctionItem.bids = auctionItem.bids.map((bid) =>
+        bid.userId.toString() === req.user._id.toString()
+          ? { ...bid.toObject(), amount }
+          : bid
+      );
+    } else {
+      // Create new bid
+      await Bid.create({
         amount,
-        bidder:{
+        bidder: {
           id: req.user._id,
           userName: bidderDetail.userName,
           profileImage: bidderDetail.profileImage?.url,
         },
-        auctionItem : auctionItem._id,
+        auctionItem: auctionItem._id,
       });
+
+      // Add to embedded array in auction
       auctionItem.bids.push({
         userId: req.user._id,
         userName: bidderDetail.userName,
         profileImage: bidderDetail.profileImage?.url,
-        amount: amount,
+        amount,
       });
-      auctionItem.currentBid = amount;
     }
+
+    // Update currentBid and highestBidder
+    auctionItem.currentBid = amount;
+    auctionItem.highestBidder = req.user._id;
+
     await auctionItem.save();
+
     res.status(201).json({
       success: true,
       message: "Bid placed successfully.",
       currentBid: auctionItem.currentBid,
     });
-  }catch(error){
+  } catch (error) {
     return next(new ErrorHandler("Error placing bid. Please try again.", 500));
-
   }
-})
+});
